@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mediasoup-sdp-bridge-loopback</title>
+    <style>
+        video {
+            width: 320px;
+        }
+    </style>
+</head>
+
+<body>
+    <video id="localVideo" autoplay playsinline muted></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+</body>
+
+</html>
+<script>
+    (async () => {
+        //examples how to send local media to sfu and consume it back
+
+        //send media to sfu flow
+        let localVideo = document.getElementById('localVideo');
+        let remoteVideo = document.getElementById('remoteVideo');
+
+        let producer = new RTCPeerConnection();
+        let stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: true,
+        });
+        stream.getTracks().forEach(track => producer.addTrack(track, stream));
+        localVideo.srcObject = stream;
+
+        let offer = await producer.createOffer({
+            offerToReceiveAudio: false,
+            offerToReceiveVideo: false,
+        });
+
+        await producer.setLocalDescription(offer);
+
+        let produceRequest = await fetch('http://localhost:8080/api/sdp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                id: 1,
+                offer: offer.sdp
+            })
+        });
+
+        producer.setRemoteDescription(await produceRequest.json());
+
+        //consume media from sfu flow
+        let consumer = new RTCPeerConnection();
+        consumer.ontrack = (event) => {
+            remoteVideo.srcObject = event.streams[0];
+        };
+
+        let consumeRequest = await fetch('http://localhost:8080/api/sdp/consume', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                id: 2,
+                producerId: 1
+            })
+        });
+
+        consumer.setRemoteDescription(await consumeRequest.json());
+
+        let answer = await consumer.createAnswer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true,
+        });
+
+        await consumer.setLocalDescription(answer);
+
+        let processConsumeRequest = await fetch('http://localhost:8080/api/sdp/processConsume', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                id: 2,
+                producerId: 1,
+                answer: answer.sdp
+            })
+        });
+    })();
+</script>
